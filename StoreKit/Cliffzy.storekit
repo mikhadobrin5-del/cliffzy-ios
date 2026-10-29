@@ -1,0 +1,121 @@
+{
+  "identifier" : "C1F2A7E0",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "6740000001",
+      "localizations" : [
+        {
+          "description" : "500 coins to unlock episodes",
+          "displayName" : "500 coins",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.cliffzy.coins.500",
+      "referenceName" : "Coins 500",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "9.99",
+      "familyShareable" : false,
+      "internalID" : "6740000002",
+      "localizations" : [
+        {
+          "description" : "1100 coins to unlock episodes",
+          "displayName" : "1100 coins",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.cliffzy.coins.1100",
+      "referenceName" : "Coins 1100",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "19.99",
+      "familyShareable" : false,
+      "internalID" : "6740000003",
+      "localizations" : [
+        {
+          "description" : "2400 coins to unlock episodes",
+          "displayName" : "2400 coins",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.cliffzy.coins.2400",
+      "referenceName" : "Coins 2400",
+      "type" : "Consumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21500001",
+      "localizations" : [
+
+      ],
+      "name" : "VIP",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "9.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6740000004",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "All episodes unlocked",
+              "displayName" : "VIP Weekly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.cliffzy.vip.weekly",
+          "recurringSubscriptionPeriod" : "P1W",
+          "referenceName" : "VIP Weekly",
+          "subscriptionGroupID" : "21500001",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "99.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6740000005",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "All episodes unlocked",
+              "displayName" : "VIP Yearly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.cliffzy.vip.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "VIP Yearly",
+          "subscriptionGroupID" : "21500001",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}
