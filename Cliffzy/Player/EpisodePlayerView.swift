@@ -1,16 +1,27 @@
 import AVFoundation
 import SwiftUI
 
-/// One full-screen episode page: plays while active, tap to pause, reports the end.
+struct PlaybackInfo {
+    var currentTime: Double = 0
+    var duration: Double = 0
+    var isPaused = false
+    /// Player controls (scrubber, buttons). Auto-hide after 3 s while playing.
+    var controlsVisible = true
+
+    var progress: Double { duration > 0 ? currentTime / duration : 0 }
+}
+
+/// One full-screen episode page: plays while active, tap toggles play/pause and controls,
+/// and hands the overlay the playback state plus a seek action.
 struct EpisodePlayerView<Overlay: View>: View {
     let player: AVPlayer
     let isActive: Bool
     var loops = false
     var onFinished: () -> Void = {}
-    @ViewBuilder var overlay: () -> Overlay
+    @ViewBuilder var content: (PlaybackInfo, _ seek: @escaping (Double) -> Void) -> Overlay
 
-    @State private var isPaused = false
-    @State private var progress: Double = 0
+    @State private var info = PlaybackInfo()
+    @State private var lastInteraction = Date()
 
     var body: some View {
         ZStack {
@@ -18,25 +29,19 @@ struct EpisodePlayerView<Overlay: View>: View {
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture { togglePause() }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(info.isPaused ? "Play" : "Pause")
 
-            if isPaused {
+            if info.isPaused {
                 Image(systemName: "play.fill")
                     .font(.system(size: 56))
                     .foregroundStyle(.white.opacity(0.85))
+                    .shadow(radius: 8)
                     .allowsHitTesting(false)
+                    .transition(.opacity)
             }
 
-            overlay()
-
-            VStack {
-                Spacer()
-                ProgressView(value: progress)
-                    .progressViewStyle(.linear)
-                    .tint(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 4)
-                    .allowsHitTesting(false)
-            }
+            content(info) { seek(to: $0) }
         }
         .onAppear { updatePlayback() }
         .onChange(of: isActive) { updatePlayback() }
@@ -53,17 +58,25 @@ struct EpisodePlayerView<Overlay: View>: View {
         .task(id: isActive) {
             guard isActive else { return }
             while !Task.isCancelled {
-                if let item = player.currentItem, item.duration.isNumeric, item.duration.seconds > 0 {
-                    progress = player.currentTime().seconds / item.duration.seconds
+                if let item = player.currentItem, item.duration.isNumeric {
+                    info.duration = item.duration.seconds
                 }
+                info.currentTime = player.currentTime().seconds
                 try? await Task.sleep(for: .milliseconds(250))
             }
+        }
+        .task(id: lastInteraction) {
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled, !info.isPaused else { return }
+            withAnimation(.easeOut(duration: 0.25)) { info.controlsVisible = false }
         }
     }
 
     private func updatePlayback() {
         if isActive {
-            isPaused = false
+            info.isPaused = false
+            info.controlsVisible = true
+            lastInteraction = .now
             player.play()
         } else {
             player.pause()
@@ -71,11 +84,21 @@ struct EpisodePlayerView<Overlay: View>: View {
     }
 
     private func togglePause() {
-        isPaused.toggle()
-        if isPaused {
+        withAnimation(.easeOut(duration: 0.2)) {
+            info.isPaused.toggle()
+            info.controlsVisible = true
+        }
+        lastInteraction = .now
+        if info.isPaused {
             player.pause()
         } else {
             player.play()
         }
+    }
+
+    private func seek(to seconds: Double) {
+        info.currentTime = seconds
+        lastInteraction = .now
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
     }
 }

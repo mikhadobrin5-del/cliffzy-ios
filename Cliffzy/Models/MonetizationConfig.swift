@@ -6,6 +6,8 @@ struct MonetizationConfig: Codable, Hashable, Sendable {
     var freeEpisodes: Int
     var episodePriceCoins: Int
     var dailyBonusCoins: Int
+    /// Reward on day 7 of the check-in streak.
+    var weeklyBonusCoins: Int
     var coinPacks: [CoinPack]
     var vipProductIDs: [String]
 
@@ -14,17 +16,22 @@ struct MonetizationConfig: Codable, Hashable, Sendable {
     }
 
     func coins(forProductID id: String) -> Int? {
-        coinPacks.first { $0.productID == id }?.coins
+        pack(forProductID: id)?.coins
+    }
+
+    func pack(forProductID id: String) -> CoinPack? {
+        coinPacks.first { $0.productID == id }
     }
 
     static let `default` = MonetizationConfig(
         freeEpisodes: 5,
         episodePriceCoins: 60,
         dailyBonusCoins: 10,
+        weeklyBonusCoins: 30,
         coinPacks: [
             CoinPack(productID: "com.cliffzy.coins.500", coins: 500),
-            CoinPack(productID: "com.cliffzy.coins.1100", coins: 1100),
-            CoinPack(productID: "com.cliffzy.coins.2400", coins: 2400),
+            CoinPack(productID: "com.cliffzy.coins.1100", coins: 1100, bonusPercent: 10),
+            CoinPack(productID: "com.cliffzy.coins.2400", coins: 2400, bonusPercent: 20),
         ],
         vipProductIDs: [
             "com.cliffzy.vip.weekly",
@@ -36,6 +43,8 @@ struct MonetizationConfig: Codable, Hashable, Sendable {
 struct CoinPack: Codable, Hashable, Identifiable, Sendable {
     let productID: String
     let coins: Int
+    /// Bonus shown on the pack, in percent ("+10%").
+    var bonusPercent: Int = 0
 
     var id: String { productID }
 }

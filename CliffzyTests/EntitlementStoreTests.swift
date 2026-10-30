@@ -62,6 +62,30 @@ final class EntitlementStoreTests: XCTestCase {
         XCTAssertEqual(store.coins, 20)
     }
 
+    func testSeventhDayPaysWeeklyBonus() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        for day in 0..<7 {
+            XCTAssertTrue(store.claimDailyBonus(now: start.addingTimeInterval(Double(day) * 86_400)))
+        }
+        XCTAssertEqual(store.checkInStreak, 7)
+        XCTAssertEqual(store.coins, 6 * 10 + 30)
+    }
+
+    func testMissedDayRestartsStreak() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        store.claimDailyBonus(now: start)
+        store.claimDailyBonus(now: start.addingTimeInterval(86_400))
+        XCTAssertEqual(store.checkInStreak, 2)
+        store.claimDailyBonus(now: start.addingTimeInterval(4 * 86_400))
+        XCTAssertEqual(store.checkInStreak, 1)
+    }
+
+    func testCoinsNeeded() {
+        store.credit(coins: 40, transactionID: "t1")
+        XCTAssertEqual(store.coinsNeeded(for: episode(6)), 20)
+        XCTAssertEqual(store.coinsNeeded(for: episode(1)), 0)
+    }
+
     func testStatePersists() throws {
         store.credit(coins: 100, transactionID: "t1")
         try store.unlock(episode(7))
