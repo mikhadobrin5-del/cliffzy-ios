@@ -287,7 +287,7 @@ private struct LockedEpisodeView: View {
                         .font(.subheadline)
                         .foregroundStyle(Theme.Colors.textSecondary)
                     Spacer()
-                    CoinBadge()
+                    CoinBadge(opensShop: false)
                 }
                 .padding(.vertical, 4)
 
