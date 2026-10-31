@@ -1,0 +1,108 @@
+name: iOS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      - name: Generate project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Pick simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)["devices"]
+          ios = sorted((k for k in data if "iOS" in k), reverse=True)
+          for runtime in ios:
+              for d in data[runtime]:
+                  if d["name"].startswith("iPhone"):
+                      print(d["udid"]); sys.exit()
+          ')
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Build and test
+        run: |
+          status=0
+          xcodebuild test \
+            -project Cliffzy.xcodeproj \
+            -scheme Cliffzy \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            > xcodebuild.log 2>&1 || status=$?
+          grep -E "error:|Test Case .* failed|Executed|\*\* .* \*\*" xcodebuild.log | tail -150 || true
+          exit $status
+
+      - name: Package simulator app
+        if: success()
+        run: |
+          cd build/Build/Products/Debug-iphonesimulator
+          ditto -c -k --keepParent Cliffzy.app "$GITHUB_WORKSPACE/Cliffzy-Simulator.zip"
+
+      - name: Screenshots of every screen
+        if: success()
+        run: |
+          UDID=${{ steps.sim.outputs.udid }}
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3 || true
+          xcrun simctl install "$UDID" build/Build/Products/Debug-iphonesimulator/Cliffzy.app
+          mkdir -p screenshots
+          for screen in feed series locked episodes paywall discover mylist profile; do
+            xcrun simctl terminate "$UDID" com.cliffzy.app || true
+            xcrun simctl launch "$UDID" com.cliffzy.app -CliffzyScreen "$screen"
+            sleep 9
+            xcrun simctl io "$UDID" screenshot "screenshots/$screen.png"
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: Cliffzy-Screenshots
+          path: screenshots
+
+      - name: Publish screenshots to the ci-screenshots branch
+        if: success()
+        continue-on-error: true
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          cd screenshots
+          git init -q -b ci-screenshots
+          git add .
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com commit -qm "Screenshots for ${{ github.event.pull_request.head.sha || github.sha }}"
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}" ci-screenshots
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: Cliffzy-Simulator
+          path: Cliffzy-Simulator.zip
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
