@@ -10,6 +10,9 @@ concurrency:
   group: ios-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-15
@@ -79,6 +82,18 @@ jobs:
         with:
           name: Cliffzy-Screenshots
           path: screenshots
+
+      - name: Publish screenshots to the ci-screenshots branch
+        if: success()
+        continue-on-error: true
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          cd screenshots
+          git init -q -b ci-screenshots
+          git add .
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com commit -qm "Screenshots for ${{ github.event.pull_request.head.sha || github.sha }}"
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}" ci-screenshots
 
       - uses: actions/upload-artifact@v4
         if: success()
