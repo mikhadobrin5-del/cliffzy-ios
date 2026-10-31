@@ -191,8 +191,9 @@ struct PaywallSheet: View {
         let formatted = perWeek.formatted(item.priceFormatStyle)
         if let weekly = app.purchases.vipItems.first(where: { !$0.isYearly }),
            weekly.price > 0 {
-            let saving = (1 - (perWeek / weekly.price)) * 100
-            let percent = NSDecimalNumber(decimal: saving).intValue
+            // Via Double: NSDecimalNumber.intValue misreads long decimals (gave 0%).
+            let ratio = NSDecimalNumber(decimal: perWeek / weekly.price).doubleValue
+            let percent = Int(((1 - ratio) * 100).rounded())
             return "≈ \(formatted)/wk · save \(percent)%"
         }
         return "≈ \(formatted)/wk"
