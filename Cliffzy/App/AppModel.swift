@@ -30,12 +30,13 @@ final class AppModel {
 
     init(
         catalog: any CatalogService = MockCatalogService(),
-        entitlements: EntitlementStore = EntitlementStore(),
-        library: LibraryStore = LibraryStore()
+        entitlements: EntitlementStore? = nil,
+        library: LibraryStore? = nil
     ) {
+        let entitlements = entitlements ?? EntitlementStore()
         self.catalog = catalog
         self.entitlements = entitlements
-        self.library = library
+        self.library = library ?? LibraryStore()
         purchases = PurchaseService(entitlements: entitlements)
     }
 

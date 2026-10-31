@@ -112,17 +112,17 @@ struct PaywallSheet: View {
                 Text("VIP is active. Enjoy every episode.")
                     .font(.subheadline)
                     .foregroundStyle(Theme.Colors.textSecondary)
-            } else if app.purchases.vipProducts.isEmpty {
+            } else if app.purchases.vipItems.isEmpty {
                 storeUnavailable
             } else {
                 HStack(spacing: 10) {
-                    ForEach(app.purchases.vipProducts, id: \.id) { product in
-                        vipCard(product)
+                    ForEach(app.purchases.vipItems) { item in
+                        vipCard(item)
                     }
                 }
                 Button {
-                    if let product = app.purchases.vipProducts.first(where: { $0.id == currentVIPSelection }) {
-                        buy(product)
+                    if let item = app.purchases.vipItems.first(where: { $0.id == currentVIPSelection }) {
+                        buy(item)
                     }
                 } label: {
                     Text("Start VIP")
@@ -134,22 +134,22 @@ struct PaywallSheet: View {
     }
 
     private var currentVIPSelection: String? {
-        selectedVIP ?? app.purchases.vipProducts.last?.id
+        selectedVIP ?? app.purchases.vipItems.last?.id
     }
 
-    private func vipCard(_ product: Product) -> some View {
-        let selected = product.id == currentVIPSelection
-        let yearly = product.subscription?.subscriptionPeriod.unit == .year
+    private func vipCard(_ item: StoreItem) -> some View {
+        let selected = item.id == currentVIPSelection
+        let yearly = item.isYearly
         return Button {
-            selectedVIP = product.id
+            selectedVIP = item.id
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 Text(yearly ? "Yearly" : "Weekly")
                     .font(.headline)
-                Text(product.displayPrice)
+                Text(item.displayPrice)
                     .font(.title2.bold())
                     .monospacedDigit()
-                Text(yearly ? weeklyEquivalent(product) : "per week")
+                Text(yearly ? weeklyEquivalent(item) : "per week")
                     .font(.caption)
                     .foregroundStyle(Theme.Colors.textSecondary)
             }
@@ -186,10 +186,10 @@ struct PaywallSheet: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private func weeklyEquivalent(_ product: Product) -> String {
-        let perWeek = product.price / 52
-        let formatted = perWeek.formatted(product.priceFormatStyle)
-        if let weekly = app.purchases.vipProducts.first(where: { $0.subscription?.subscriptionPeriod.unit != .year }),
+    private func weeklyEquivalent(_ item: StoreItem) -> String {
+        let perWeek = item.price / 52
+        let formatted = perWeek.formatted(item.priceFormatStyle)
+        if let weekly = app.purchases.vipItems.first(where: { !$0.isYearly }),
            weekly.price > 0 {
             let saving = (1 - (perWeek / weekly.price)) * 100
             let percent = NSDecimalNumber(decimal: saving).intValue
@@ -203,19 +203,24 @@ struct PaywallSheet: View {
             Text("Coin packs")
                 .font(.title3.bold())
                 .foregroundStyle(.white)
-            if app.purchases.coinProducts.isEmpty {
+            if app.purchases.coinItems.isEmpty {
                 storeUnavailable
             }
-            ForEach(app.purchases.coinProducts, id: \.id) { product in
-                coinRow(product)
+            ForEach(app.purchases.coinItems) { item in
+                coinRow(item)
+            }
+            if app.purchases.isPreviewStore {
+                Label("Test prices: purchases here are simulated and free.", systemImage: "hammer")
+                    .font(.caption)
+                    .foregroundStyle(Theme.Colors.textTertiary)
             }
         }
     }
 
-    private func coinRow(_ product: Product) -> some View {
-        let pack = app.entitlements.config.pack(forProductID: product.id)
+    private func coinRow(_ item: StoreItem) -> some View {
+        let pack = app.entitlements.config.pack(forProductID: item.id)
         return Button {
-            buy(product)
+            buy(item)
         } label: {
             HStack(spacing: 12) {
                 CoinIcon(size: 28)
@@ -230,7 +235,7 @@ struct PaywallSheet: View {
                     }
                 }
                 Spacer()
-                Text(product.displayPrice)
+                Text(item.displayPrice)
                     .font(.subheadline.weight(.semibold))
                     .monospacedDigit()
                     .foregroundStyle(.white)
@@ -272,10 +277,10 @@ struct PaywallSheet: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func buy(_ product: Product) {
+    private func buy(_ item: StoreItem) {
         Task {
             do {
-                if try await app.purchases.purchase(product) {
+                if try await app.purchases.purchase(item) {
                     successCount += 1
                 }
             } catch {
