@@ -172,6 +172,7 @@ struct ShelfRoute: Hashable {
 struct SeriesSelection: Identifiable {
     let series: Series
     let episode: Int
+    var showsEpisodes = false
 
     var id: String { "\(series.id)-\(episode)" }
 }

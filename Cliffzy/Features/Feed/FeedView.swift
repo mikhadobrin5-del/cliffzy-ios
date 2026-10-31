@@ -90,6 +90,7 @@ struct FeedView: View {
             && openSeries == nil
             && episodesFor == nil
             && !app.shopPresented
+            && app.presentedSeries == nil
     }
 
     private func preloadNeighbours() {

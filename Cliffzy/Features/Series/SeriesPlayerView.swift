@@ -8,6 +8,7 @@ struct SeriesPlayerView: View {
 
     let series: Series
     let startEpisode: Int
+    var showsEpisodesOnAppear = false
 
     @State private var currentNumber: Int?
     @State private var showEpisodes = false
@@ -23,6 +24,7 @@ struct SeriesPlayerView: View {
         .statusBarHidden(false)
         .onAppear {
             if currentNumber == nil { currentNumber = startEpisode }
+            if showsEpisodesOnAppear { showEpisodes = true }
         }
         .onChange(of: currentNumber) { episodeDidChange() }
         .sensoryFeedback(.selection, trigger: currentNumber)

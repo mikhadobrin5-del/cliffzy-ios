@@ -25,7 +25,10 @@ struct RootTabView: View {
         .tint(Theme.Colors.accent)
         .task { await app.loadCatalogIfNeeded() }
         .sheet(isPresented: $app.shopPresented) {
-            PaywallSheet()
+            PaywallSheet(episode: app.shopEpisode)
+        }
+        .fullScreenCover(item: $app.presentedSeries) { selection in
+            SeriesPlayerView(series: selection.series, startEpisode: selection.episode, showsEpisodesOnAppear: selection.showsEpisodes)
         }
         .onChange(of: app.selectedTab) {
             if app.selectedTab != .forYou { app.players.pauseAll() }

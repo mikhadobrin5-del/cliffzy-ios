@@ -17,7 +17,13 @@ final class AppModel {
 
     var selectedTab: AppTab = .forYou
     /// The coin shop (paywall without an episode), opened from any CoinBadge.
-    var shopPresented = false
+    var shopPresented = false {
+        didSet { if !shopPresented { shopEpisode = nil } }
+    }
+    /// Episode the shop opens for, when it is opened to unlock one.
+    var shopEpisode: Episode?
+    /// A series player opened from outside a tab (demo screens, deep links later).
+    var presentedSeries: SeriesSelection?
 
     /// Catalog cache so every tab shows the same series without refetching.
     private(set) var allSeries: [Series] = []
@@ -53,6 +59,7 @@ final class AppModel {
             allSeries = try await feed
             shelves = try await rows
             catalogState = .loaded
+            if let screen = DemoScreen.requested { applyDemoScreen(screen) }
         } catch {
             catalogState = .failed(error.localizedDescription)
         }

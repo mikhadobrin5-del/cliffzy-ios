@@ -58,6 +58,28 @@ jobs:
           cd build/Build/Products/Debug-iphonesimulator
           ditto -c -k --keepParent Cliffzy.app "$GITHUB_WORKSPACE/Cliffzy-Simulator.zip"
 
+      - name: Screenshots of every screen
+        if: success()
+        run: |
+          UDID=${{ steps.sim.outputs.udid }}
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3 || true
+          xcrun simctl install "$UDID" build/Build/Products/Debug-iphonesimulator/Cliffzy.app
+          mkdir -p screenshots
+          for screen in feed series locked episodes paywall discover mylist profile; do
+            xcrun simctl terminate "$UDID" com.cliffzy.app || true
+            xcrun simctl launch "$UDID" com.cliffzy.app -CliffzyScreen "$screen"
+            sleep 9
+            xcrun simctl io "$UDID" screenshot "screenshots/$screen.png"
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: Cliffzy-Screenshots
+          path: screenshots
+
       - uses: actions/upload-artifact@v4
         if: success()
         with:
