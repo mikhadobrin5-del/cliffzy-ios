@@ -14,6 +14,14 @@ permissions:
   contents: write
 
 jobs:
+  catalog-tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Catalog builder tests
+        run: python3 scripts/tests/test_build_catalog.py -v
+
   build:
     runs-on: macos-15
     timeout-minutes: 45

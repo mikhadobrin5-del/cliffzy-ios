@@ -72,11 +72,23 @@ struct CatalogDocument: Sendable {
     let series: [Series]
     let shelves: [Shelf]
 
-    static func decode(_ data: Data, baseURL: URL) throws -> CatalogDocument {
+    /// The viewer's country (ISO 3166-1 alpha-2) for licensed territories.
+    static var currentRegion: String? {
+        Locale.current.region?.identifier
+    }
+
+    /// - Parameter region: series whose `regions` list does not include it are left out.
+    ///   Nil shows only worldwide series, so an unknown country never sees regional ones.
+    static func decode(_ data: Data, baseURL: URL, region: String? = currentRegion) throws -> CatalogDocument {
         let file = try JSONDecoder().decode(CatalogFile.self, from: data)
         guard file.version == 1 else { throw CatalogError.unsupportedVersion(file.version) }
 
-        let series = try file.series.enumerated().map { index, item in
+        let visible = file.series.filter { item in
+            guard let regions = item.regions, !regions.isEmpty else { return true }
+            guard let region else { return false }
+            return regions.contains { $0.caseInsensitiveCompare(region) == .orderedSame }
+        }
+        let series = try visible.enumerated().map { index, item in
             try item.makeSeries(index: index, baseURL: baseURL)
         }
         guard !series.isEmpty else { throw CatalogError.empty }
@@ -111,6 +123,8 @@ private struct CatalogFile: Decodable {
         let poster: String?
         let badge: String?
         let views: Int?
+        /// Countries where the license allows showing it; nil or empty = worldwide.
+        let regions: [String]?
         let episodes: [EpisodeItem]
 
         func makeSeries(index: Int, baseURL: URL) throws -> Series {

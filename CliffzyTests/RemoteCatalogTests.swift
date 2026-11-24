@@ -12,7 +12,7 @@ final class RemoteCatalogTests: XCTestCase {
     }
 
     func testExampleFileDecodesWithRelativeAndAbsoluteLinks() throws {
-        let document = try CatalogDocument.decode(try example(), baseURL: base)
+        let document = try CatalogDocument.decode(try example(), baseURL: base, region: "US")
         XCTAssertEqual(document.series.count, 2)
 
         let first = try XCTUnwrap(document.series.first)
@@ -37,12 +37,28 @@ final class RemoteCatalogTests: XCTestCase {
           {"id":"b","title":"B","genres":["Drama"],"views":9,"badge":"New","episodes":[{"number":1,"video":"b/1.mp4"}]}
         ]}
         """
-        let document = try CatalogDocument.decode(Data(json.utf8), baseURL: base)
+        let document = try CatalogDocument.decode(Data(json.utf8), baseURL: base, region: "US")
         XCTAssertEqual(document.series[0].episodes.map(\.number), [1, 2])
         let top = try XCTUnwrap(document.shelves.first)
         XCTAssertEqual(top.style, .ranked)
         XCTAssertEqual(top.series.map(\.id), ["b", "a"])
         XCTAssertTrue(document.shelves.contains { $0.id == "new" })
+    }
+
+    func testRegionalSeriesShowOnlyInLicensedCountries() throws {
+        let json = """
+        {"version":1,"series":[
+          {"id":"ww","title":"Worldwide","episodes":[{"number":1,"video":"ww/1.mp4"}]},
+          {"id":"na","title":"North America","regions":["US","CA"],"episodes":[{"number":1,"video":"na/1.mp4"}]}
+        ],"shelves":[{"id":"top","title":"Top","series":["na","ww"]}]}
+        """
+        let us = try CatalogDocument.decode(Data(json.utf8), baseURL: base, region: "us")
+        XCTAssertEqual(us.series.map(\.id), ["ww", "na"])
+        let de = try CatalogDocument.decode(Data(json.utf8), baseURL: base, region: "DE")
+        XCTAssertEqual(de.series.map(\.id), ["ww"])
+        XCTAssertEqual(de.shelves.first?.series.map(\.id), ["ww"])
+        let unknown = try CatalogDocument.decode(Data(json.utf8), baseURL: base, region: nil)
+        XCTAssertEqual(unknown.series.map(\.id), ["ww"])
     }
 
     func testRejectsUnknownVersionAndEmptySeries() {
