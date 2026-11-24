@@ -35,7 +35,7 @@ final class AppModel {
     }
 
     init(
-        catalog: any CatalogService = MockCatalogService(),
+        catalog: any CatalogService = CatalogConfig.makeService(),
         entitlements: EntitlementStore? = nil,
         library: LibraryStore? = nil
     ) {

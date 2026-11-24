@@ -8,12 +8,28 @@ protocol CatalogService: Sendable {
     func series(id: String) async throws -> Series
 }
 
-enum CatalogError: Error {
+enum CatalogError: LocalizedError {
     case notFound
+    case badStatus(Int)
+    case unsupportedVersion(Int)
+    case empty
+    case noEpisodes(series: String)
+    case badLink(series: String, value: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .notFound: "Series not found."
+        case .badStatus(let code): "The catalog server answered \(code)."
+        case .unsupportedVersion(let version): "Catalog version \(version) is not supported by this app version."
+        case .empty: "The catalog has no series."
+        case .noEpisodes(let series): "Series \(series) has no episodes."
+        case .badLink(let series, let value): "Series \(series) has a bad video link: \(value)"
+        }
+    }
 }
 
 /// Demo catalog backed by public HLS test streams, so the app runs before the
-/// real backend and content exist. Swap for a Supabase-backed service later.
+/// real backend and content exist. `RemoteCatalogService` replaces it when a catalog URL is configured.
 struct MockCatalogService: CatalogService {
     let all: [Series]
 
@@ -77,16 +93,7 @@ struct MockCatalogService: CatalogService {
     }
 
     func shelves() async throws -> [Shelf] {
-        let ranked = all.sorted { $0.views > $1.views }
-        let fresh = all.filter { $0.badge == "New" }
-        let genres = ["Romance", "Revenge", "CEO", "Thriller", "Mafia"]
-        let byGenre = genres.map { genre in
-            Shelf(id: genre, title: genre, series: all.filter { $0.genres.contains(genre) })
-        }
-        return [
-            Shelf(id: "top10", title: "Top 10 this week", series: Array(ranked.prefix(10)), style: .ranked),
-            Shelf(id: "new", title: "New releases", series: fresh),
-        ] + byGenre
+        Shelf.defaultShelves(for: all)
     }
 
     func series(id: String) async throws -> Series {
