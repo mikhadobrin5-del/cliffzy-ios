@@ -91,3 +91,21 @@ ffmpeg -i ep-0001.mp4 -c:v libx264 -preset veryfast -crf 21 -c:a aac -b:a 128k \
 В каталог попадают только сериалы, на которые у нас есть права: свои AI-сериалы или лицензия, разрешающая
 показ в приложении и монетизацию в нужных странах. Чужой контент без лицензии = удаление из App Store и риск
 блокировки аккаунта разработчика (App Review Guideline 5.2).
+
+## Первый тестовый билд (2026-11-25)
+
+Андрей одобрил 5 сериалов (46 серий): строки в `content/rights.csv`, ключи файлов в
+`content/archive-registry.json`, жанры в `content/series-meta.json`. Готовый каталог: `content/catalog.json`.
+
+Пересобрать:
+
+```sh
+python3 scripts/build_catalog.py --registry content/archive-registry.json \
+  --rights content/rights.csv --meta content/series-meta.json --out content/catalog.json
+```
+
+Ссылки на видео в каталоге относительные (`originals/yourchannel/en/<id>/episodes/ep-0001.mp4`),
+поэтому `catalog.json` кладётся в корень того же бакета. Адрес каталога тогда
+`https://f005.backblazeb2.com/file/<бакет>/catalog.json`, он идёт в `CATALOG_URL` в `project.yml`.
+С 2026-11-25 бакет отвечает 401 (закрыт), поэтому для теста нужен публичный доступ к этим 5 папкам:
+лучше отдельный публичный бакет только с ними, чтобы не открывать весь архив.

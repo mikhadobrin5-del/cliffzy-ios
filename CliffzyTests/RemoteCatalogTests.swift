@@ -30,6 +30,22 @@ final class RemoteCatalogTests: XCTestCase {
         XCTAssertEqual(document.shelves[0].style, .ranked)
     }
 
+    /// The catalog of the first test build (content/catalog.json, built by scripts/build_catalog.py).
+    func testFirstTestBuildCatalogDecodes() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("content/catalog.json")
+        let bucket = URL(string: "https://f005.backblazeb2.com/file/bucket/catalog.json")!
+        let document = try CatalogDocument.decode(try Data(contentsOf: url), baseURL: bucket, region: nil)
+        XCTAssertEqual(document.series.count, 5)
+        XCTAssertEqual(document.series.map { $0.episodes.count }, [6, 20, 6, 9, 5])
+        XCTAssertEqual(
+            document.series[0].episodes[0].streamURL.absoluteString,
+            "https://f005.backblazeb2.com/file/bucket/originals/yourchannel/en/640082/episodes/ep-0001.mp4"
+        )
+        XCTAssertFalse(document.shelves.isEmpty)
+    }
+
     func testShelvesAreDerivedWhenFileHasNone() throws {
         let json = """
         {"version":1,"series":[
