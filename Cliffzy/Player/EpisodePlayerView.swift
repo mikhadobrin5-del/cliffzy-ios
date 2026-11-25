@@ -1,7 +1,7 @@
 import AVFoundation
 import SwiftUI
 
-struct PlaybackInfo {
+struct PlaybackState {
     var currentTime: Double = 0
     var duration: Double = 0
     var isPaused = false
@@ -16,15 +16,20 @@ struct PlaybackInfo {
 struct EpisodePlayerView<Overlay: View>: View {
     let player: AVPlayer
     let isActive: Bool
+    /// Poster shown until the first video frame (links are fetched from the server first).
+    var backdrop: Series?
     var loops = false
     var onFinished: () -> Void = {}
-    @ViewBuilder var content: (PlaybackInfo, _ seek: @escaping (Double) -> Void) -> Overlay
+    @ViewBuilder var content: (PlaybackState, _ seek: @escaping (Double) -> Void) -> Overlay
 
-    @State private var info = PlaybackInfo()
+    @State private var info = PlaybackState()
     @State private var lastInteraction = Date()
 
     var body: some View {
         ZStack {
+            if let backdrop {
+                PosterBackdrop(series: backdrop).ignoresSafeArea()
+            }
             VideoSurface(player: player)
                 .ignoresSafeArea()
                 .contentShape(Rectangle())

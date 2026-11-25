@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Full-screen series player: swipe up for the next episode; locked episodes show an unlock card.
+/// Full-screen series player: swipe up for the next episode; locked episodes show the VIP card.
+/// Opened from a card, it first loads the episode list with access rules from the server.
 struct SeriesPlayerView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
@@ -10,27 +11,40 @@ struct SeriesPlayerView: View {
     let startEpisode: Int
     var showsEpisodesOnAppear = false
 
+    @State private var loaded: Series?
+    @State private var loadError: String?
     @State private var currentNumber: Int?
     @State private var showEpisodes = false
     @State private var paywallEpisode: Episode?
-    @State private var unlockedCount = 0
+    @AppStorage("settings.autoplay") private var autoplay = true
+
+    private var shown: Series { loaded ?? series }
 
     var body: some View {
         ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
-            pager
+            if shown.hasEpisodes {
+                pager
+            } else if let loadError {
+                LoadErrorView(message: loadError) { Task { await load() } }
+            } else {
+                PosterBackdrop(series: shown)
+                    .ignoresSafeArea()
+                    .overlay { ProgressView().tint(.white) }
+            }
             topBar
         }
         .statusBarHidden(false)
-        .onAppear {
-            if currentNumber == nil { currentNumber = startEpisode }
-            if showsEpisodesOnAppear { showEpisodes = true }
+        .task { await load() }
+        .onChange(of: currentNumber) { oldValue, _ in episodeDidChange(from: oldValue) }
+        .onChange(of: app.account.isVIP) {
+            if app.account.isVIP { paywallEpisode = nil }
         }
-        .onChange(of: currentNumber) { episodeDidChange() }
+        .onDisappear { saveProgress(of: currentNumber) }
         .sensoryFeedback(.selection, trigger: currentNumber)
-        .sensoryFeedback(.success, trigger: unlockedCount)
+        .sensoryFeedback(.success, trigger: app.account.isVIP)
         .sheet(isPresented: $showEpisodes) {
-            EpisodesSheet(series: series, current: currentNumber) { number in
+            EpisodesSheet(series: shown, current: currentNumber) { number in
                 showEpisodes = false
                 move(to: number)
             }
@@ -40,10 +54,24 @@ struct SeriesPlayerView: View {
         }
     }
 
+    private func load() async {
+        loadError = nil
+        do {
+            let detailed = try await app.detailedSeries(series, refresh: !series.hasEpisodes)
+            loaded = detailed
+            if currentNumber == nil {
+                currentNumber = min(max(startEpisode, 1), max(detailed.episodeCount, 1))
+            }
+            if showsEpisodesOnAppear { showEpisodes = true }
+        } catch {
+            if !shown.hasEpisodes { loadError = error.localizedDescription }
+        }
+    }
+
     private var pager: some View {
         ScrollView(.vertical) {
             LazyVStack(spacing: 0) {
-                ForEach(series.episodes) { episode in
+                ForEach(shown.episodes) { episode in
                     page(for: episode)
                         .containerRelativeFrame([.horizontal, .vertical])
                         .id(episode.number)
@@ -59,20 +87,19 @@ struct SeriesPlayerView: View {
 
     @ViewBuilder
     private func page(for episode: Episode) -> some View {
-        if app.entitlements.access(for: episode).isPlayable {
+        if app.access(for: episode).isPlayable {
             EpisodePlayerView(
                 player: app.players.player(for: episode),
                 isActive: currentNumber == episode.number && paywallEpisode == nil && !showEpisodes,
-                onFinished: { advance(from: episode) }
+                backdrop: shown,
+                onFinished: { if autoplay { advance(from: episode) } }
             ) { info, seek in
-                PlayerControls(series: series, episode: episode, info: info, seek: seek) {
+                PlayerControls(series: shown, episode: episode, info: info, seek: seek) {
                     advance(from: episode)
                 }
             }
         } else {
-            LockedEpisodeView(series: series, episode: episode) {
-                tryUnlock(episode)
-            } onVIP: {
+            LockedEpisodeView(series: shown, episode: episode) {
                 paywallEpisode = episode
             }
         }
@@ -91,10 +118,10 @@ struct SeriesPlayerView: View {
             .accessibilityLabel("Close")
             Spacer(minLength: 0)
             VStack(spacing: 2) {
-                Text(series.title)
+                Text(shown.title)
                     .font(.headline)
                     .lineLimit(1)
-                Text("Episode \(currentNumber ?? startEpisode) of \(series.episodeCount)")
+                Text("Episode \(currentNumber ?? startEpisode) of \(shown.episodeCount)")
                     .font(.caption)
                     .foregroundStyle(Theme.Colors.textSecondary)
             }
@@ -107,6 +134,7 @@ struct SeriesPlayerView: View {
                     .frame(width: 44, height: 44)
             }
             .accessibilityLabel("Episodes")
+            .disabled(!shown.hasEpisodes)
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 8)
@@ -118,30 +146,29 @@ struct SeriesPlayerView: View {
         }
     }
 
-    private func tryUnlock(_ episode: Episode) {
-        do {
-            try app.entitlements.unlock(episode)
-            unlockedCount += 1
-            app.library.recordWatched(seriesID: series.id, episodeNumber: episode.number)
-        } catch {
-            paywallEpisode = episode
-        }
-    }
-
-    private func episodeDidChange() {
-        guard let number = currentNumber, let episode = series.episode(number: number) else { return }
+    private func episodeDidChange(from previous: Int?) {
+        saveProgress(of: previous)
+        guard let number = currentNumber, let episode = shown.episode(number: number) else { return }
         app.players.pauseAll(except: episode.id)
-        if app.entitlements.access(for: episode).isPlayable {
-            app.library.recordWatched(seriesID: series.id, episodeNumber: number)
+        if app.access(for: episode).isPlayable {
+            app.library.recordWatched(seriesID: shown.id, episodeNumber: number)
         }
-        let upcoming = series.episodes
-            .filter { $0.number > number && app.entitlements.access(for: $0).isPlayable }
+        let upcoming = shown.episodes
+            .filter { $0.number > number && app.access(for: $0).isPlayable }
             .prefix(2)
         app.players.preload(Array(upcoming))
     }
 
+    /// Where the viewer stopped in an episode, for Continue watching.
+    private func saveProgress(of number: Int?) {
+        guard let number, let episode = shown.episode(number: number), app.access(for: episode).isPlayable else { return }
+        let position = app.players.position(of: episode)
+        guard position.isFinite, position > 0 else { return }
+        app.library.recordWatched(seriesID: shown.id, episodeNumber: number, positionSec: Int(position))
+    }
+
     private func advance(from episode: Episode) {
-        guard episode.number < series.episodeCount else { return }
+        guard episode.number < shown.episodeCount else { return }
         move(to: episode.number + 1)
     }
 
@@ -159,7 +186,7 @@ private struct PlayerControls: View {
     @Environment(AppModel.self) private var app
     let series: Series
     let episode: Episode
-    let info: PlaybackInfo
+    let info: PlaybackState
     let seek: (Double) -> Void
     let onNext: () -> Void
 
@@ -197,7 +224,7 @@ private struct PlayerControls: View {
             RailButton(systemImage: saved ? "bookmark.fill" : "bookmark", label: saved ? "Saved" : "Save", tint: saved ? Theme.Colors.coin : .white) {
                 app.library.toggleFavorite(series.id)
             }
-            ShareLink(item: "Watch \"\(series.title)\" episode \(episode.number) on Cliffzy") {
+            ShareLink(item: AppConfig.shareURL(for: series.id), message: Text("Watch \"\(series.title)\" episode \(episode.number) on Cliffzy")) {
                 RailLabel(systemImage: "square.and.arrow.up", label: "Share")
             }
             .buttonStyle(.plain)
@@ -251,62 +278,43 @@ private struct PlayerControls: View {
     }
 }
 
-/// Dimmed backdrop with the unlock card (screen 03).
+/// Dimmed poster with the VIP card (screen 03).
 private struct LockedEpisodeView: View {
     @Environment(AppModel.self) private var app
     let series: Series
     let episode: Episode
-    let onUnlock: () -> Void
     let onVIP: () -> Void
 
     var body: some View {
-        let price = app.entitlements.config.episodePriceCoins
-        let short = app.entitlements.coinsNeeded(for: episode)
         ZStack {
             PosterBackdrop(series: series)
-                .overlay(Color.black.opacity(0.7))
+                .overlay(Color.black.opacity(0.55))
                 .ignoresSafeArea()
 
             VStack(spacing: 14) {
                 ZStack {
-                    Circle().fill(Theme.Colors.accent.opacity(0.18))
+                    Circle().fill(Theme.Colors.vip.opacity(0.18))
                     Image(systemName: "lock.fill")
                         .font(.system(size: 28, weight: .bold))
-                        .foregroundStyle(Theme.Colors.accent)
+                        .foregroundStyle(Theme.Colors.vip)
                 }
                 .frame(width: 68, height: 68)
 
-                Text("Episode \(episode.number) is locked")
+                Text("Episode \(episode.number) is for VIP")
                     .font(.title2.bold())
                     .foregroundStyle(.white)
-                Text("The first \(app.entitlements.config.freeEpisodes) episodes are free. Unlock to find out what happens next.")
+                    .multilineTextAlignment(.center)
+                Text(freeText)
                     .font(.subheadline)
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .multilineTextAlignment(.center)
 
-                HStack {
-                    Text("Your balance")
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                    Spacer()
-                    CoinBadge(opensShop: false)
-                }
-                .padding(.vertical, 4)
-
-                Button(action: onUnlock) {
-                    HStack(spacing: 8) {
-                        Text("Unlock for \(price)")
-                        CoinIcon(size: 18)
-                    }
-                }
-                .buttonStyle(.cliffzy(.coin))
-
                 Button(action: onVIP) {
-                    Label("Get VIP · all episodes", systemImage: "crown.fill")
+                    Label(priceText, systemImage: "crown.fill")
                 }
                 .buttonStyle(.cliffzy(.vip))
 
-                Text(short > 0 ? "You need \(short) more coins. Tap to pick a pack." : "Coins are spent once; the episode stays unlocked.")
+                Text("Every episode of every series. Cancel anytime in Settings.")
                     .font(.footnote)
                     .foregroundStyle(Theme.Colors.textTertiary)
                     .multilineTextAlignment(.center)
@@ -316,5 +324,15 @@ private struct LockedEpisodeView: View {
             .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Theme.Colors.borderSubtle))
             .padding(.horizontal, 24)
         }
+    }
+
+    private var freeText: String {
+        guard let free = series.freeEpisodes, free > 0 else { return "Get VIP to keep watching." }
+        return "The first \(free) episodes are free. Get VIP to find out what happens next."
+    }
+
+    private var priceText: String {
+        guard let plan = app.purchases.plans.first else { return "Get VIP · all episodes" }
+        return "Get VIP · \(plan.displayPrice) / \(plan.periodName)"
     }
 }

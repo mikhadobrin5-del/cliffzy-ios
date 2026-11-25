@@ -11,6 +11,8 @@
 		<key>UIImageRespectsSafeAreaInsets</key>
 		<true/>
 	</dict>
+	<key>CliffzyAPIBaseURL</key>
+	<string>$(API_BASE_URL)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 </dict>

@@ -9,7 +9,8 @@ struct VideoSurface: UIViewRepresentable {
     func makeUIView(context: Context) -> PlayerLayerView {
         let view = PlayerLayerView()
         view.playerLayer.videoGravity = .resizeAspectFill
-        view.backgroundColor = .black
+        // Clear, so the poster behind shows until the first frame.
+        view.backgroundColor = .clear
         view.playerLayer.player = player
         return view
     }

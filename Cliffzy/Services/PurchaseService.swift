@@ -2,32 +2,40 @@ import Foundation
 import Observation
 import StoreKit
 
-/// What the paywall shows for one product, whether it came from StoreKit or from the preview store.
-struct StoreItem: Identifiable, Hashable {
+/// What the paywall shows for the VIP plan, from StoreKit or from the preview store.
+struct VIPPlan: Identifiable, Hashable {
     let id: String
     let displayPrice: String
-    let price: Decimal
-    let isYearly: Bool
-    let priceFormatStyle: Decimal.FormatStyle.Currency
+    /// "week", "month", "year".
+    let periodName: String
 }
 
-/// StoreKit 2 purchases: coin packs (consumable) and VIP (auto-renewable).
-/// Will be replaced by RevenueCat once the backend webhook exists.
+/// VIP subscription through StoreKit 2. The app never opens episodes by itself: every transaction
+/// goes to the server (`POST /v1/billing/apple/verify`), which checks Apple's signature and turns
+/// VIP on for the account. Renewals and refunds also reach the server from Apple directly.
 ///
-/// In DEBUG builds where StoreKit returns no products (an app installed on the Simulator
-/// without Xcode's StoreKit config), a preview store stands in so every flow stays testable.
+/// A transaction is finished only after the server accepted it, so a failed upload is retried
+/// by StoreKit on the next launch.
 @MainActor
 @Observable
 final class PurchaseService {
-    private(set) var coinProducts: [Product] = []
-    private(set) var vipProducts: [Product] = []
-    private(set) var isPurchasing = false
+    static let vipProductIDs = ["com.cliffzy.vip.weekly"]
 
-    @ObservationIgnored private let entitlements: EntitlementStore
+    private(set) var products: [Product] = []
+    private(set) var isPurchasing = false
+    private(set) var isRestoring = false
+    private(set) var storeError: String?
+
+    @ObservationIgnored private let api: any CliffzyAPI
+    @ObservationIgnored private let account: AccountStore
+    /// Demo server and DEBUG builds without the App Store: "buying" is simulated.
+    @ObservationIgnored let previewStore: Bool
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
 
-    init(entitlements: EntitlementStore) {
-        self.entitlements = entitlements
+    init(api: any CliffzyAPI, account: AccountStore, previewStore: Bool) {
+        self.api = api
+        self.account = account
+        self.previewStore = previewStore
         updatesTask = Task { [weak self] in
             for await result in Transaction.updates {
                 await self?.handle(result)
@@ -39,71 +47,40 @@ final class PurchaseService {
         updatesTask?.cancel()
     }
 
-    // MARK: Items for the paywall
-
-    var coinItems: [StoreItem] {
-        if !coinProducts.isEmpty { return coinProducts.map(Self.item(from:)) }
-        return isPreviewStore ? PreviewStore.coinItems : []
+    var plans: [VIPPlan] {
+        if !products.isEmpty {
+            return products.map { product in
+                VIPPlan(id: product.id, displayPrice: product.displayPrice, periodName: Self.periodName(product.subscription?.subscriptionPeriod))
+            }
+        }
+        return previewStore ? [VIPPlan(id: Self.vipProductIDs[0], displayPrice: "$2.99", periodName: "week")] : []
     }
-
-    var vipItems: [StoreItem] {
-        if !vipProducts.isEmpty { return vipProducts.map(Self.item(from:)) }
-        return isPreviewStore ? PreviewStore.vipItems : []
-    }
-
-    /// True when the paywall runs on test prices with no App Store involved.
-    var isPreviewStore: Bool {
-        #if DEBUG
-        return coinProducts.isEmpty && vipProducts.isEmpty
-        #else
-        return false
-        #endif
-    }
-
-    private static func item(from product: Product) -> StoreItem {
-        StoreItem(
-            id: product.id,
-            displayPrice: product.displayPrice,
-            price: product.price,
-            isYearly: product.subscription?.subscriptionPeriod.unit == .year,
-            priceFormatStyle: product.priceFormatStyle
-        )
-    }
-
-    // MARK: Loading and buying
 
     func loadProducts() async {
-        let config = entitlements.config
         do {
-            let products = try await Product.products(for: config.allProductIDs)
-            coinProducts = products
-                .filter { $0.type == .consumable }
-                .sorted { $0.price < $1.price }
-            vipProducts = products
-                .filter { $0.type == .autoRenewable }
-                .sorted { $0.price < $1.price }
+            products = try await Product.products(for: Self.vipProductIDs).sorted { $0.price < $1.price }
+            storeError = products.isEmpty && !previewStore ? "VIP is not available in the App Store yet." : nil
         } catch {
-            print("[Purchases] failed to load products: \(error)")
-        }
-        if !vipProducts.isEmpty {
-            await refreshVIP()
+            storeError = error.localizedDescription
         }
     }
 
-    /// Returns true when the purchase completed (not cancelled or pending).
+    /// Returns true when VIP is on after the purchase (not cancelled, not pending).
     @discardableResult
-    func purchase(_ item: StoreItem) async throws -> Bool {
+    func purchase(_ plan: VIPPlan) async throws -> Bool {
         isPurchasing = true
         defer { isPurchasing = false }
 
-        guard let product = (coinProducts + vipProducts).first(where: { $0.id == item.id }) else {
-            return previewPurchase(item)
+        guard let product = products.first(where: { $0.id == plan.id }) else {
+            guard previewStore else { return false }
+            account.apply(try await api.verifyAppleTransaction("preview"))
+            return account.isVIP
         }
-
-        switch try await product.purchase() {
+        let accountID = try await api.accountID()
+        switch try await product.purchase(options: [.appAccountToken(accountID)]) {
         case .success(let verification):
-            await handle(verification)
-            return true
+            try await upload(verification)
+            return account.isVIP
         case .userCancelled, .pending:
             return false
         @unknown default:
@@ -111,70 +88,55 @@ final class PurchaseService {
         }
     }
 
-    func restore() async {
-        try? await AppStore.sync()
-        if !vipProducts.isEmpty {
-            await refreshVIP()
-        }
+    /// "Restore purchases": asks the App Store for this Apple ID's subscriptions and sends them to the server.
+    func restore() async throws {
+        isRestoring = true
+        defer { isRestoring = false }
+        if !previewStore { try await AppStore.sync() }
+        await syncWithServer()
     }
 
-    func refreshVIP() async {
-        var active = false
-        for await result in Transaction.currentEntitlements {
-            if case .verified(let transaction) = result,
-               transaction.productType == .autoRenewable,
-               transaction.revocationDate == nil {
-                active = true
+    /// At launch: active subscriptions go to the server (covers a missed notification or a new device),
+    /// then the account's VIP status is read back.
+    func syncWithServer() async {
+        if !previewStore || !products.isEmpty {
+            for await result in Transaction.currentEntitlements {
+                guard case .verified(let transaction) = result, Self.vipProductIDs.contains(transaction.productID) else { continue }
+                try? await upload(result)
             }
         }
-        entitlements.setVIP(active)
+        if let me = try? await api.me() { account.apply(me) }
     }
 
     private func handle(_ result: VerificationResult<Transaction>) async {
+        do {
+            try await upload(result)
+        } catch {
+            print("[Purchases] server did not accept the transaction yet: \(error)")
+        }
+    }
+
+    private func upload(_ result: VerificationResult<Transaction>) async throws {
         guard case .verified(let transaction) = result else {
             print("[Purchases] unverified transaction ignored")
             return
         }
-        switch transaction.productType {
-        case .consumable:
-            if let coins = entitlements.config.coins(forProductID: transaction.productID) {
-                entitlements.credit(coins: coins, transactionID: String(transaction.id))
-            }
-        case .autoRenewable:
-            await refreshVIP()
-        default:
-            break
+        guard Self.vipProductIDs.contains(transaction.productID) else {
+            await transaction.finish()
+            return
         }
+        let me = try await api.verifyAppleTransaction(result.jwsRepresentation)
+        account.apply(me)
         await transaction.finish()
     }
 
-    private func previewPurchase(_ item: StoreItem) -> Bool {
-        guard isPreviewStore else { return false }
-        if let coins = entitlements.config.coins(forProductID: item.id) {
-            entitlements.credit(coins: coins, transactionID: "preview-\(UUID().uuidString)")
-        } else {
-            entitlements.setVIP(true)
+    private static func periodName(_ period: Product.SubscriptionPeriod?) -> String {
+        switch period?.unit {
+        case .day: "day"
+        case .week: "week"
+        case .month: "month"
+        case .year: "year"
+        default: "period"
         }
-        return true
-    }
-}
-
-/// Test prices for DEBUG builds without StoreKit (USD, matching StoreKit/Cliffzy.storekit).
-private enum PreviewStore {
-    static let usd = Decimal.FormatStyle.Currency(code: "USD", locale: Locale(identifier: "en_US"))
-
-    static let coinItems = [
-        item("com.cliffzy.coins.500", 4.99),
-        item("com.cliffzy.coins.1100", 9.99),
-        item("com.cliffzy.coins.2400", 19.99),
-    ]
-
-    static let vipItems = [
-        item("com.cliffzy.vip.weekly", 9.99),
-        item("com.cliffzy.vip.yearly", 99.99, yearly: true),
-    ]
-
-    private static func item(_ id: String, _ price: Decimal, yearly: Bool = false) -> StoreItem {
-        StoreItem(id: id, displayPrice: price.formatted(usd), price: price, isYearly: yearly, priceFormatStyle: usd)
     }
 }
