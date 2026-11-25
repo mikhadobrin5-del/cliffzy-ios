@@ -69,46 +69,35 @@ struct GlassButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - Coins and badges
+// MARK: - VIP
 
-struct CoinIcon: View {
-    var size: CGFloat = 18
-
-    var body: some View {
-        Image(systemName: "circle.circle.fill")
-            .resizable()
-            .scaledToFit()
-            .foregroundStyle(Theme.Colors.coin)
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
-    }
-}
-
-/// Balance capsule. Tapping opens the coin shop.
-struct CoinBadge: View {
+/// Header button: "Get VIP" with a crown, or the VIP badge once it is active.
+struct VIPButton: View {
     @Environment(AppModel.self) private var app
-    var opensShop = true
 
     var body: some View {
-        Button {
-            if opensShop { app.shopPresented = true }
-        } label: {
-            HStack(spacing: 6) {
-                CoinIcon(size: 18)
-                Text(app.entitlements.coins.formatted())
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.Colors.coin)
+        if app.account.isVIP {
+            VIPBadge()
+                .accessibilityLabel("VIP is active")
+        } else {
+            Button {
+                app.paywallPresented = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "crown.fill")
+                        .foregroundStyle(Theme.Colors.vip)
+                    Text("Get VIP")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Theme.Colors.bgElevated, in: Capsule())
+                .contentShape(Capsule())
             }
-            .padding(.leading, 8)
-            .padding(.trailing, 12)
-            .padding(.vertical, 6)
-            .background(Theme.Colors.bgElevated, in: Capsule())
-            .contentShape(Capsule())
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens the VIP subscription")
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(app.entitlements.coins) coins")
-        .accessibilityHint(opensShop ? "Opens the coin shop" : "")
     }
 }
 

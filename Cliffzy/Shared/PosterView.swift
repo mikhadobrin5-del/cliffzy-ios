@@ -75,7 +75,7 @@ struct PosterView: View {
     }
 }
 
-/// Full-bleed backdrop for locked episodes and the feed while video loads.
+/// Full-bleed backdrop for locked episodes and while video loads: the poster, dimmed.
 struct PosterBackdrop: View {
     let series: Series
 
@@ -86,8 +86,16 @@ struct PosterBackdrop: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-            Color.black.opacity(0.45)
+            if let url = series.posterURL {
+                AsyncImage(url: url) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    Color.clear
+                }
+            }
+            Color.black.opacity(0.35)
         }
+        .clipped()
     }
 }
 

@@ -23,9 +23,8 @@ struct RootTabView: View {
         .toolbarBackground(Theme.Colors.bgSurface.opacity(0.96), for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
         .tint(Theme.Colors.accent)
-        .task { await app.loadCatalogIfNeeded() }
-        .sheet(isPresented: $app.shopPresented) {
-            PaywallSheet(episode: app.shopEpisode)
+        .sheet(isPresented: $app.paywallPresented) {
+            PaywallSheet(episode: app.paywallEpisode)
         }
         .fullScreenCover(item: $app.presentedSeries) { selection in
             SeriesPlayerView(series: selection.series, startEpisode: selection.episode, showsEpisodesOnAppear: selection.showsEpisodes)
@@ -33,5 +32,6 @@ struct RootTabView: View {
         .onChange(of: app.selectedTab) {
             if app.selectedTab != .forYou { app.players.pauseAll() }
         }
+        .onChange(of: app.account.isVIP) { app.vipDidChange() }
     }
 }

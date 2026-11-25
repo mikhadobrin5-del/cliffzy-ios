@@ -10,9 +10,11 @@ settings:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    # HTTPS link to catalog.json on Cliffzy's server (see wiki/catalog-format.md).
-    # Empty = built-in demo catalog.
-    CATALOG_URL: ""
+    # The Cliffzy backend shared with Android (repo cliffzy-backend-android, Render).
+    # Empty = in-memory demo server. CI passes its own value for TestFlight builds.
+    API_BASE_URL: "https://cliffzy-api.onrender.com/"
+    # Apple Developer Team ID; CI sets it from the APPLE_TEAM_ID repository variable.
+    DEVELOPMENT_TEAM: ""
 
 targets:
   Cliffzy:

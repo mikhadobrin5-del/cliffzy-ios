@@ -1,6 +1,6 @@
 import Foundation
 
-/// Opens a given screen with sample progress, for screenshots and quick manual checks.
+/// Opens a given screen with sample progress on the demo server, for screenshots and quick checks.
 /// Launch with `-CliffzyScreen <name>` (Xcode scheme argument or `simctl launch`).
 /// Names: feed, series, locked, episodes, paywall, discover, mylist, profile.
 enum DemoScreen: String, CaseIterable {
@@ -12,18 +12,15 @@ enum DemoScreen: String, CaseIterable {
 }
 
 extension AppModel {
-    /// Seeds sample state and routes to the requested screen. Call after the catalog loads.
-    func applyDemoScreen(_ screen: DemoScreen) {
-        guard let first = allSeries.first else { return }
-        #if DEBUG
-        entitlements.debugResetUnlocks()
-        entitlements.debugAddCoins(40 - entitlements.coins)
-        #endif
-        let seeds = allSeries.prefix(4)
-        for (index, series) in seeds.enumerated().reversed() {
-            library.recordWatched(seriesID: series.id, episodeNumber: [4, 12, 2, 7][index])
-            if !library.isFavorite(series.id) { library.toggleFavorite(series.id) }
+    /// Seeds sample history on the demo server and routes to the requested screen.
+    func applyDemoScreen(_ screen: DemoScreen) async {
+        guard api is DemoAPI, let first = allSeries.first else { return }
+        for (index, series) in allSeries.prefix(4).enumerated().reversed() {
+            try? await api.reportProgress(seriesID: series.id, episode: [4, 12, 2, 7][index], positionSec: 30)
+            try? await api.save(seriesID: series.id)
         }
+        await library.refresh()
+        guard let detailed = try? await detailedSeries(first) else { return }
 
         switch screen {
         case .feed:
@@ -35,15 +32,15 @@ extension AppModel {
         case .profile:
             selectedTab = .profile
         case .series:
-            presentedSeries = SeriesSelection(series: first, episode: 4)
+            presentedSeries = SeriesSelection(series: detailed, episode: 4)
         case .locked:
-            presentedSeries = SeriesSelection(series: first, episode: 6)
+            presentedSeries = SeriesSelection(series: detailed, episode: 6)
         case .episodes:
-            presentedSeries = SeriesSelection(series: first, episode: 4, showsEpisodes: true)
+            presentedSeries = SeriesSelection(series: detailed, episode: 4, showsEpisodes: true)
         case .paywall:
             selectedTab = .discover
-            shopEpisode = first.episode(number: 6)
-            shopPresented = true
+            paywallEpisode = detailed.episode(number: 6)
+            paywallPresented = true
         }
     }
 }

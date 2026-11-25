@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Episode picker (screen 04): range tabs of 30 and a 6-column grid.
+/// Episode picker (screen 04): range tabs of 30 and a 6-column grid. Loads the episode list
+/// (with locks) when it opens from the feed, where only the series card is known.
 struct EpisodesSheet: View {
     @Environment(AppModel.self) private var app
     let series: Series
@@ -8,13 +9,16 @@ struct EpisodesSheet: View {
     let onSelect: (Int) -> Void
 
     @State private var rangeIndex = 0
+    @State private var loaded: Series?
+
+    private var shown: Series { loaded ?? series }
 
     private let pageSize = 30
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 6)
 
     private var ranges: [ClosedRange<Int>] {
-        stride(from: 1, through: series.episodeCount, by: pageSize).map { start in
-            start...min(start + pageSize - 1, series.episodeCount)
+        stride(from: 1, through: shown.episodeCount, by: pageSize).map { start in
+            start...min(start + pageSize - 1, shown.episodeCount)
         }
     }
 
@@ -22,8 +26,7 @@ struct EpisodesSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    let config = app.entitlements.config
-                    Text("\(series.episodeCount) episodes · first \(config.freeEpisodes) free · \(config.episodePriceCoins) coins per episode")
+                    Text(summary)
                         .font(.footnote)
                         .foregroundStyle(Theme.Colors.textSecondary)
 
@@ -42,7 +45,7 @@ struct EpisodesSheet: View {
                 .padding(Theme.Spacing.margin)
             }
             .background(Theme.Colors.bgSurface)
-            .navigationTitle(series.title)
+            .navigationTitle(shown.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { SheetCloseButton() }
@@ -50,16 +53,30 @@ struct EpisodesSheet: View {
             .onAppear {
                 if let current { rangeIndex = (current - 1) / pageSize }
             }
+            .task {
+                if !series.hasEpisodes { loaded = try? await app.detailedSeries(series) }
+            }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationBackground(Theme.Colors.bgSurface)
     }
 
+    private var summary: String {
+        let count = "\(shown.episodeCount) episodes"
+        if app.account.isVIP { return count + " · all open with VIP" }
+        guard let free = shown.freeEpisodes else { return count }
+        return count + " · first \(free) free · VIP opens the rest"
+    }
+
+    /// Before the list loads, plain numbered cells (locks appear once the server answered).
     private var episodesInRange: [Episode] {
-        guard ranges.indices.contains(rangeIndex) else { return series.episodes }
+        let all = shown.hasEpisodes ? shown.episodes : (1...max(shown.episodeCount, 1)).map {
+            Episode(seriesID: shown.id, number: $0, duration: 0, access: .free)
+        }
+        guard ranges.indices.contains(rangeIndex) else { return all }
         let range = ranges[rangeIndex]
-        return series.episodes.filter { range.contains($0.number) }
+        return all.filter { range.contains($0.number) }
     }
 
     private var rangeTabs: some View {
@@ -85,7 +102,7 @@ struct EpisodesSheet: View {
 
     private func cell(_ episode: Episode) -> some View {
         let isCurrent = episode.number == current
-        let playable = app.entitlements.access(for: episode).isPlayable
+        let playable = app.access(for: episode).isPlayable
         let watched = (app.library.lastEpisode[series.id] ?? 0) > episode.number
         return Button {
             onSelect(episode.number)
@@ -113,10 +130,10 @@ struct EpisodesSheet: View {
     private var legend: some View {
         HStack(spacing: 16) {
             legendItem(color: Theme.Colors.accent, text: "Playing")
-            legendItem(color: Theme.Colors.bgElevated, text: "Free or unlocked")
+            legendItem(color: Theme.Colors.bgElevated, text: "Free or open")
             HStack(spacing: 6) {
                 Image(systemName: "lock.fill").font(.system(size: 11))
-                Text("\(app.entitlements.config.episodePriceCoins) coins")
+                Text("VIP")
             }
         }
         .font(.caption)

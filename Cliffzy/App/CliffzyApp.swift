@@ -15,7 +15,7 @@ struct CliffzyApp: App {
             RootTabView()
                 .environment(model)
                 .preferredColorScheme(.dark)
-                .task { await model.purchases.loadProducts() }
+                .task { await model.start() }
         }
     }
 }

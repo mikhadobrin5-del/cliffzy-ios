@@ -22,7 +22,7 @@ struct DiscoverView: View {
             .navigationTitle("Discover")
             .searchable(text: $searchText, isPresented: $searchPresented, prompt: "Search series")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { CoinBadge() }
+                ToolbarItem(placement: .topBarTrailing) { VIPButton() }
             }
             .navigationDestination(for: ShelfRoute.self) { route in
                 ShelfGridView(title: route.title, series: route.series, onOpen: open)
@@ -68,7 +68,7 @@ struct DiscoverView: View {
                     ForEach(0..<2, id: \.self) { _ in
                         ScrollView(.horizontal) {
                             HStack(spacing: 10) {
-                                ForEach(MockCatalogService().all.prefix(4)) { PosterCard(series: $0) }
+                                ForEach(Series.placeholders) { PosterCard(series: $0) }
                             }
                             .padding(.horizontal, Theme.Spacing.margin)
                         }
@@ -81,6 +81,7 @@ struct DiscoverView: View {
     }
 
     private var genres: [String] {
+        if !app.genres.isEmpty { return app.genres }
         var seen: [String] = []
         for genre in app.allSeries.flatMap(\.genres) where !seen.contains(genre) {
             seen.append(genre)
@@ -137,7 +138,7 @@ struct DiscoverView: View {
                             if shelf.style == .ranked {
                                 RankedCard(rank: index + 1, series: series)
                             } else {
-                                PosterCard(series: series, meta: "\(series.views.compactFormatted) views")
+                                PosterCard(series: series)
                             }
                         }
                         .buttonStyle(.plain)
@@ -187,6 +188,15 @@ private struct HeroBanner: View {
         Button(action: onWatch) {
             ZStack(alignment: .bottomLeading) {
                 LinearGradient(colors: PosterView.colors(for: series), startPoint: .topLeading, endPoint: .bottomTrailing)
+                if let url = series.posterURL {
+                    AsyncImage(url: url) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        Color.clear
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+                }
                 Image(systemName: "play.fill")
                     .font(.system(size: 140, weight: .black))
                     .foregroundStyle(.white.opacity(0.07))
@@ -239,7 +249,7 @@ private struct RankedCard: View {
                 .frame(minWidth: 36)
                 .zIndex(1)
                 .offset(y: 10)
-            PosterCard(series: series, meta: "\(series.views.compactFormatted) views")
+            PosterCard(series: series)
         }
         .accessibilityElement(children: .combine)
     }

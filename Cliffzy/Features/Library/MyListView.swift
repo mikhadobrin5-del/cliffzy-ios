@@ -25,18 +25,7 @@ struct MyListView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.Colors.bgBase)
             .navigationTitle("My List")
-            .toolbar {
-                if !history.isEmpty {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Menu {
-                            Button("Clear history", role: .destructive) { app.library.clearHistory() }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                        }
-                        .accessibilityLabel("More")
-                    }
-                }
-            }
+            .refreshable { await app.library.refresh() }
         }
         .fullScreenCover(item: $selection) { selection in
             SeriesPlayerView(series: selection.series, startEpisode: selection.episode)

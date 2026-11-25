@@ -38,22 +38,21 @@ struct FeedView: View {
         ScrollView(.vertical) {
             LazyVStack(spacing: 0) {
                 ForEach(app.allSeries) { series in
-                    if let first = series.episodes.first {
-                        EpisodePlayerView(
-                            player: app.players.player(for: first),
-                            isActive: isActive(series),
-                            loops: true
-                        ) { info, _ in
-                            FeedOverlay(
-                                series: series,
-                                progress: info.progress,
-                                onWatch: { openSeries = SeriesSelection(series: series, episode: app.resumeEpisode(for: series)) },
-                                onEpisodes: { episodesFor = series }
-                            )
-                        }
-                        .containerRelativeFrame([.horizontal, .vertical])
-                        .id(series.id)
+                    EpisodePlayerView(
+                        player: app.players.player(for: series.firstEpisode),
+                        isActive: isActive(series),
+                        backdrop: series,
+                        loops: true
+                    ) { info, _ in
+                        FeedOverlay(
+                            series: series,
+                            progress: info.progress,
+                            onWatch: { openSeries = SeriesSelection(series: series, episode: app.resumeEpisode(for: series)) },
+                            onEpisodes: { episodesFor = series }
+                        )
                     }
+                    .containerRelativeFrame([.horizontal, .vertical])
+                    .id(series.id)
                 }
             }
             .scrollTargetLayout()
@@ -78,7 +77,7 @@ struct FeedView: View {
                     Capsule().fill(.white).frame(width: 20, height: 3).offset(y: 6)
                 }
             Spacer()
-            CoinBadge()
+            VIPButton()
         }
         .padding(.horizontal, Theme.Spacing.margin)
         .padding(.top, 4)
@@ -89,14 +88,14 @@ struct FeedView: View {
             && app.selectedTab == .forYou
             && openSeries == nil
             && episodesFor == nil
-            && !app.shopPresented
+            && !app.paywallPresented
             && app.presentedSeries == nil
     }
 
     private func preloadNeighbours() {
         guard let currentID, let index = app.allSeries.firstIndex(where: { $0.id == currentID }) else { return }
-        let next = app.allSeries.dropFirst(index + 1).prefix(2).compactMap(\.episodes.first)
-        app.players.preload(next)
+        let next = app.allSeries.dropFirst(index + 1).prefix(2).map(\.firstEpisode)
+        app.players.preload(Array(next))
     }
 }
 
@@ -150,10 +149,12 @@ private struct FeedOverlay: View {
                 .font(.title2.bold())
                 .foregroundStyle(.white)
                 .lineLimit(2)
-            Text(series.synopsis)
-                .font(.subheadline)
-                .foregroundStyle(Theme.Colors.textSecondary)
-                .lineLimit(2)
+            if !series.synopsis.isEmpty {
+                Text(series.synopsis)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .lineLimit(2)
+            }
         }
         .shadow(color: .black.opacity(0.4), radius: 4)
     }
@@ -164,7 +165,7 @@ private struct FeedOverlay: View {
         return VStack(spacing: 20) {
             RailButton(
                 systemImage: "heart.fill",
-                label: (series.views / 40 + (liked ? 1 : 0)).compactFormatted,
+                label: liked ? "Liked" : "Like",
                 tint: liked ? Theme.Colors.accent : .white
             ) {
                 app.library.toggleLike(series.id)
@@ -179,7 +180,7 @@ private struct FeedOverlay: View {
             }
             .sensoryFeedback(.impact(weight: .light), trigger: saved)
             RailButton(systemImage: "list.bullet", label: "\(series.episodeCount) eps", action: onEpisodes)
-            ShareLink(item: "Watch \"\(series.title)\" on Cliffzy") {
+            ShareLink(item: AppConfig.shareURL(for: series.id), message: Text("Watch \"\(series.title)\" on Cliffzy")) {
                 RailLabel(systemImage: "square.and.arrow.up", label: "Share")
             }
             .buttonStyle(.plain)

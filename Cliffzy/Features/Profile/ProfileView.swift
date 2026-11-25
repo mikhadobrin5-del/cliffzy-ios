@@ -5,20 +5,18 @@ struct ProfileView: View {
     @Environment(AppModel.self) private var app
 
     @State private var showSettings = false
-    @State private var showSignIn = false
-    @State private var claimCount = 0
+    @State private var confirmDelete = false
+    @State private var deleting = false
+    @State private var message: String?
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: Theme.Spacing.section) {
                     userRow
-                    coinsCard
                     vipCard
                     linksList
-                    #if DEBUG
-                    DeveloperSection()
-                    #endif
+                    accountList
                     Text("Cliffzy \(appVersion)")
                         .font(.caption)
                         .foregroundStyle(Theme.Colors.textTertiary)
@@ -39,11 +37,16 @@ struct ProfileView: View {
                 }
             }
             .navigationDestination(isPresented: $showSettings) { SettingsView() }
-            .sensoryFeedback(.success, trigger: claimCount)
-            .alert("Sign in is coming soon", isPresented: $showSignIn) {
+            .confirmationDialog("Delete your account?", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("Delete account", role: .destructive) { deleteAccount() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Your watch history and My List are deleted from Cliffzy's servers. An App Store subscription is not cancelled: manage it in Settings › Apple ID › Subscriptions.")
+            }
+            .alert("Cliffzy", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text("In the test build your coins and progress are saved on this device.")
+                Text(message ?? "")
             }
         }
     }
@@ -68,102 +71,14 @@ struct ProfileView: View {
                     Text("Guest")
                         .font(.headline)
                         .foregroundStyle(.white)
-                    if app.entitlements.isVIP { VIPBadge() }
+                    if app.account.isVIP { VIPBadge() }
                 }
-                Text("Sign in to keep coins & progress")
+                Text("History, My List and VIP are saved to this device's account.")
                     .font(.footnote)
                     .foregroundStyle(Theme.Colors.textSecondary)
             }
-            Spacer(minLength: 8)
-            Button("Sign in") { showSignIn = true }
-                .buttonStyle(CapsuleButtonStyle(fill: Theme.Colors.bgElevated))
+            Spacer(minLength: 0)
         }
-    }
-
-    // MARK: Coins + check-in
-
-    private var coinsCard: some View {
-        let store = app.entitlements
-        let canClaim = store.canClaimDailyBonus()
-        let nextDay = store.nextCheckInDay()
-        // Days already claimed in this cycle, for the 7-day strip.
-        let claimedDays = canClaim ? nextDay - 1 : store.checkInStreak
-        return VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Coins")
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                    HStack(spacing: 8) {
-                        CoinIcon(size: 28)
-                        Text(store.coins.formatted())
-                            .font(.largeTitle.bold())
-                            .monospacedDigit()
-                            .foregroundStyle(.white)
-                            .contentTransition(.numericText())
-                    }
-                }
-                Spacer()
-                Button("Top up") { app.shopPresented = true }
-                    .buttonStyle(CapsuleButtonStyle(fill: Theme.Colors.coin, text: Theme.Colors.bgBase))
-            }
-
-            Divider().overlay(Theme.Colors.borderSubtle)
-
-            HStack(spacing: 12) {
-                Image(systemName: "gift.fill")
-                    .font(.title3)
-                    .foregroundStyle(Theme.Colors.coin)
-                    .frame(width: 36, height: 36)
-                    .background(Theme.Colors.coin.opacity(0.18), in: Circle())
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Daily check-in")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                    Text("+\(store.dailyReward(day: nextDay)) free coins today")
-                        .font(.footnote)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                }
-                Spacer()
-                if canClaim {
-                    Button("Claim") {
-                        withAnimation {
-                            if store.claimDailyBonus() { claimCount += 1 }
-                        }
-                    }
-                    .buttonStyle(CapsuleButtonStyle())
-                } else {
-                    Text("Claimed ✓")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                }
-            }
-
-            HStack(spacing: 6) {
-                ForEach(1...7, id: \.self) { day in
-                    let claimed = day <= claimedDays
-                    VStack(spacing: 4) {
-                        Text("+\(store.dailyReward(day: day))")
-                            .font(.caption.weight(.bold))
-                            .monospacedDigit()
-                            .foregroundStyle(claimed ? Theme.Colors.coin : .white)
-                        Text("Day \(day)")
-                            .font(.caption2)
-                            .foregroundStyle(Theme.Colors.textTertiary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background(
-                        claimed ? Theme.Colors.coin.opacity(0.18) : Theme.Colors.bgElevated,
-                        in: RoundedRectangle(cornerRadius: 10)
-                    )
-                    .accessibilityElement(children: .combine)
-                    .accessibilityValue(claimed ? "Claimed" : "")
-                }
-            }
-        }
-        .padding(Theme.Spacing.margin)
-        .background(Theme.Colors.bgSurface, in: RoundedRectangle(cornerRadius: Theme.Radius.card))
     }
 
     // MARK: VIP
@@ -174,16 +89,19 @@ struct ProfileView: View {
                 .font(.title)
                 .foregroundStyle(Theme.Colors.coin)
             VStack(alignment: .leading, spacing: 4) {
-                Text(app.entitlements.isVIP ? "VIP · Active" : "VIP · Not active")
+                Text(app.account.isVIP ? "VIP · Active" : "VIP · Not active")
                     .font(.headline)
                     .foregroundStyle(.white)
-                Text("Every episode unlocked, no ads")
+                Text(vipDetail)
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.8))
             }
             Spacer(minLength: 8)
-            if !app.entitlements.isVIP {
-                Button("Get VIP") { app.shopPresented = true }
+            if app.account.isVIP {
+                Link("Manage", destination: AppConfig.manageSubscriptionsURL)
+                    .buttonStyle(CapsuleButtonStyle(fill: .white, text: .black))
+            } else {
+                Button("Get VIP") { app.paywallPresented = true }
                     .buttonStyle(CapsuleButtonStyle(fill: .white, text: .black))
             }
         }
@@ -191,42 +109,85 @@ struct ProfileView: View {
         .background(Theme.Gradients.vipCard, in: RoundedRectangle(cornerRadius: Theme.Radius.card))
     }
 
+    private var vipDetail: String {
+        if app.account.isVIP, let until = app.account.vipUntil {
+            return "Every episode unlocked · renews or ends \(until.formatted(date: .abbreviated, time: .omitted))"
+        }
+        return "Every episode of every series unlocked"
+    }
+
     // MARK: Links
 
     private var linksList: some View {
         VStack(spacing: 0) {
-            NavigationLink { SettingsView() } label: {
-                ProfileRow(icon: "bell", title: "Notifications")
-            }
-            divider
             Button {
-                Task { await app.purchases.restore() }
+                Task {
+                    do {
+                        try await app.purchases.restore()
+                        message = app.account.isVIP ? "VIP is restored." : "No active VIP subscription was found for this Apple ID."
+                    } catch {
+                        message = error.localizedDescription
+                    }
+                }
             } label: {
                 ProfileRow(icon: "arrow.clockwise", title: "Restore purchases", showsChevron: false)
             }
             divider
-            Button {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
-            } label: {
-                ProfileRow(icon: "globe", title: "Language", detail: Locale.current.localizedString(forLanguageCode: Locale.current.language.languageCode?.identifier ?? "en"))
-            }
-            divider
-            Link(destination: URL(string: "mailto:support@cliffzy.app")!) {
+            Link(destination: URL(string: "mailto:\(AppConfig.supportEmail)")!) {
                 ProfileRow(icon: "questionmark.circle", title: "Help & support")
             }
             divider
-            Link(destination: PaywallSheet.termsURL) {
-                ProfileRow(icon: "doc.text", title: "Terms & Privacy")
+            Link(destination: AppConfig.termsURL) {
+                ProfileRow(icon: "doc.text", title: "Terms of Use")
+            }
+            divider
+            Link(destination: AppConfig.privacyURL) {
+                ProfileRow(icon: "hand.raised", title: "Privacy Policy")
             }
         }
         .buttonStyle(.plain)
         .background(Theme.Colors.bgSurface, in: RoundedRectangle(cornerRadius: Theme.Radius.row))
     }
 
+    /// Account deletion inside the app (App Review Guideline 5.1.1(v)).
+    private var accountList: some View {
+        Button {
+            confirmDelete = true
+        } label: {
+            HStack(spacing: 12) {
+                if deleting {
+                    ProgressView().frame(width: 24)
+                } else {
+                    Image(systemName: "trash").frame(width: 24)
+                }
+                Text("Delete account")
+                Spacer()
+            }
+            .foregroundStyle(Theme.Colors.accent)
+            .padding(.horizontal, Theme.Spacing.margin)
+            .frame(minHeight: 50)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(deleting)
+        .background(Theme.Colors.bgSurface, in: RoundedRectangle(cornerRadius: Theme.Radius.row))
+    }
+
     private var divider: some View {
         Divider().overlay(Theme.Colors.borderSubtle).padding(.leading, 52)
+    }
+
+    private func deleteAccount() {
+        deleting = true
+        Task {
+            defer { deleting = false }
+            do {
+                try await app.deleteAccount()
+                message = "Your account and its data were deleted."
+            } catch {
+                message = error.localizedDescription
+            }
+        }
     }
 }
 
@@ -264,22 +225,15 @@ private struct ProfileRow: View {
 }
 
 struct SettingsView: View {
-    @Environment(AppModel.self) private var app
-    @AppStorage("settings.notifications") private var notifications = true
     @AppStorage("settings.autoplay") private var autoplay = true
 
     var body: some View {
         Form {
             Section {
-                Toggle("New episode alerts", isOn: $notifications)
                 Toggle("Autoplay next episode", isOn: $autoplay)
-            } footer: {
-                Text("Notifications are a preview in the test build.")
             }
             Section {
-                Button("Clear watch history", role: .destructive) {
-                    app.library.clearHistory()
-                }
+                Link("Delete your data on the web", destination: AppConfig.deleteDataURL)
             }
         }
         .scrollContentBackground(.hidden)
@@ -288,38 +242,3 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 }
-
-#if DEBUG
-/// Test-build helpers (spec: Developer section in DEBUG builds).
-private struct DeveloperSection: View {
-    @Environment(AppModel.self) private var app
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Developer")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Theme.Colors.textTertiary)
-                .padding(.leading, 4)
-            VStack(spacing: 0) {
-                Button { app.entitlements.debugAddCoins(500) } label: {
-                    ProfileRow(icon: "plus.circle", title: "+500 coins", showsChevron: false)
-                }
-                Divider().overlay(Theme.Colors.borderSubtle).padding(.leading, 52)
-                Button { app.entitlements.setVIP(!app.entitlements.isVIP) } label: {
-                    ProfileRow(icon: "crown", title: "Toggle VIP", detail: app.entitlements.isVIP ? "On" : "Off", showsChevron: false)
-                }
-                Divider().overlay(Theme.Colors.borderSubtle).padding(.leading, 52)
-                Button { app.entitlements.debugResetUnlocks() } label: {
-                    ProfileRow(icon: "lock.rotation", title: "Reset unlocks", showsChevron: false)
-                }
-                Divider().overlay(Theme.Colors.borderSubtle).padding(.leading, 52)
-                Button { app.entitlements.debugResetDailyBonus() } label: {
-                    ProfileRow(icon: "gift", title: "Reset daily bonus", showsChevron: false)
-                }
-            }
-            .buttonStyle(.plain)
-            .background(Theme.Colors.bgSurface, in: RoundedRectangle(cornerRadius: Theme.Radius.row))
-        }
-    }
-}
-#endif
